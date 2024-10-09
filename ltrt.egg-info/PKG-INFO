@@ -1,3 +1,15 @@
+Metadata-Version: 2.1
+Name: ltrt
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: aniposelib>=0.7.0
+Requires-Dist: skellycam
+Requires-Dist: skellyforge>=2024.8.1008
+Requires-Dist: skellytracker[yolo]>=2024.9.1019
+
 # TODO:
 Make a staged pipeline:
 Try this again in a process that has an input queue.

@@ -1,54 +1,63 @@
 from multiprocessing import Event, Queue, Process
-from multiprocessing.synchronize import Event as MultiprocessingEvent
 from pathlib import Path
 import time
-from skellytracker import YOLOPoseTracker
 
 from aniposelib.cameras import CameraGroup
 
-from web_of_cams.__main__ import setup_cameras
-from web_of_cams.camera_frame_buffer import CameraFrameBuffer
-from web_of_cams.process_handler import camera_process_handler_sm, shutdown_processes
+from ltrt.mock_data.mock_multiframe_payload import mock_camera_input
+from ltrt.backend.realtime_pipeline import heavyweight_realtime_pipeline, lightweight_realtime_pipeline
 
-from ltrt.backend.realtime_pipeline import realtime_pipeline
-
-def run_realtime(calibration_toml_path: str | Path, stop_event: MultiprocessingEvent) -> tuple[list[CameraFrameBuffer], list[Process]]:
+def run_realtime(calibration_toml_path: str | Path, stop_event) -> list[Process]:
     camera_group = CameraGroup.load(str(calibration_toml_path))
-    
-    cam_buffers = setup_cameras(fps=30)
-    for buffer in cam_buffers:
-        buffer.outbound_queue = Queue(maxsize=3)
 
-    output_queue = Queue(maxsize=1)
+    frame_payload_queue = Queue()
 
-    trackers = {buffer.cam_id: YOLOPoseTracker() for buffer in cam_buffers}
+    processes = []
 
-    processes = camera_process_handler_sm(
-        camera_buffers=cam_buffers,
-        stop_event=stop_event)
-    
-    realtime_pipeline_process = Process(
-        target=realtime_pipeline,
-        args=(cam_buffers, trackers, camera_group, output_queue, stop_event)
+    print("creating mock camera input process")
+    mock_camera_process = Process(
+        target=mock_camera_input,
+        args=[frame_payload_queue]
     )
+    processes.append(mock_camera_process)
+
+    output_data_queue = Queue(maxsize=1)
+
+    print("creating lightweight realtime pipeline process")
+    realtime_pipeline_process = Process(
+        target=lightweight_realtime_pipeline,
+        args=[camera_group, frame_payload_queue, output_data_queue, stop_event]
+    )
+    # print("starting heavyweight realtime pipeline process")
+    # realtime_pipeline_process = Process(
+    #     target=heavyweight_realtime_pipeline,
+    #     args=[camera_group, frame_payload_queue, output_data_queue, stop_event]
+    # )
+    print("starting processes")
+    mock_camera_process.start()
     realtime_pipeline_process.start()
     processes.append(realtime_pipeline_process)
 
-    time.sleep(5)
+    # processes sharing a multiprocessing primitive (the queues and stop event here) must start fully before function ends
+    # this sleep should work, but if you get FileNotFound errors here, it may require joining the processes within this function
+    time.sleep(3)
 
-    return cam_buffers, processes
+    print("finished starting realtime")
+    return processes
 
-def shutdown_realtime(processes: list[Process], cam_buffers: list[CameraFrameBuffer], stop_event: MultiprocessingEvent) -> None:
-    shutdown_processes(processes=processes, camera_buffers=cam_buffers, stop_event=stop_event)
+def shutdown_realtime(processes: list[Process]) -> None:
+    for process in processes:
+        process.join()
 
 if __name__ == "__main__":
-    import cProfile
-    import pstats
+    # import cProfile
+    # import pstats
     stop_event = Event()
-    calibration_toml_path = "/Users/philipqueen/freemocap_data/logs_info_and_settings/last_successful_calibration.toml"
-
-    cam_buffers, processes = run_realtime(calibration_toml_path, stop_event)
-    shutdown_realtime(processes=processes, cam_buffers=cam_buffers, stop_event=stop_event)
+    calibration_toml_path = ".assets/freemocap_sample_data/freemocap_sample_data_camera_calibration.toml"
+    processes = run_realtime(calibration_toml_path, stop_event)
+    while not stop_event.is_set():
+        time.sleep(0.1)
+    shutdown_realtime(processes=processes)
 
 
     # with cProfile.Profile() as profile:
