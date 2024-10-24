@@ -1,3 +1,4 @@
 yolov8n-pose.pt
 *.pyc
-ltrt/.DS_Store
+*.DS_Store
+.assets/*
